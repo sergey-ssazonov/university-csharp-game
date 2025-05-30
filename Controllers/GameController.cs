@@ -5,9 +5,16 @@ using System.Linq;
 using System.Windows.Forms;
 using HardwareKiller.Models;
 
+
 namespace HardwareKiller.Controllers
 {
-    public enum GameState { Menu, Playing, GameOver, Won }
+    public enum GameState
+    {
+        Menu,
+        Playing,
+        GameOver,
+        Won
+    }
 
     public class GameController
     {
@@ -15,8 +22,10 @@ namespace HardwareKiller.Controllers
         public GameState State { get; private set; } = GameState.Menu;
         private int _initialItemCount;
         public int Score => _initialItemCount - _game.Items.Count;
+        
+        private readonly Graph _graph;
+               private int _gameOverRow = -1;
 
-        // Images
         private readonly Image _bgImg;
         private readonly Image _cursorImg;
         private readonly Image _catImg;
@@ -26,41 +35,43 @@ namespace HardwareKiller.Controllers
         private readonly Dictionary<ItemType, Image> _itemImgs;
         private readonly Dictionary<HazardType, Image> _hazardImgs;
 
-        // Animation & movement (cell-based)
         private int _startCellX, _startCellY;
         private int _targetCellX, _targetCellY;
         private float _animOffsetX, _animOffsetY;
         private bool _isMoving;
-        private const float StepPerTick = 32f / 2;  // клетка за 2 тика
+        private const float StepPerTick = 32f / 1.5f; // клетка за 2 тика
+        private bool _holdUp, _holdDown, _holdLeft, _holdRight;
 
         public GameController()
         {
             _game = new Game();
+            _graph = new Graph(_game.GridWidth, _game.GridHeight);
             _initialItemCount = _game.Items.Count;
 
-            // Load images
-            _bgImg      = Image.FromFile("Images\\windows-bg.jpg");
-            _cursorImg  = Image.FromFile("Images\\cursor.png");
-            _catImg     = Image.FromFile("Images\\cat.png");
-            _catImgLeft = (Image)_catImg.Clone();     _catImgLeft.RotateFlip(RotateFlipType.RotateNoneFlipX);
-            _catImgUp   = (Image)_catImg.Clone();     _catImgUp.RotateFlip(RotateFlipType.Rotate270FlipNone);
-            _catImgDown = (Image)_catImg.Clone();     _catImgDown.RotateFlip(RotateFlipType.Rotate90FlipNone);
+            _bgImg = Image.FromFile("Images\\windows-bg.jpg");
+            _cursorImg = Image.FromFile("Images\\cursor.png");
+            _catImg = Image.FromFile("Images\\cat.png");
+            _catImgLeft = (Image)_catImg.Clone();
+            _catImgLeft.RotateFlip(RotateFlipType.RotateNoneFlipX);
+            _catImgUp = (Image)_catImg.Clone();
+            _catImgUp.RotateFlip(RotateFlipType.Rotate270FlipNone);
+            _catImgDown = (Image)_catImg.Clone();
+            _catImgDown.RotateFlip(RotateFlipType.Rotate90FlipNone);
 
             _itemImgs = new Dictionary<ItemType, Image>
             {
-                [ItemType.File]   = Image.FromFile("Images\\file.png"),
+                [ItemType.File] = Image.FromFile("Images\\file.png"),
                 [ItemType.Folder] = Image.FromFile("Images\\folder.png"),
                 // [ItemType.Custom] = Image.FromFile("Images\\custom.png")
             };
             _hazardImgs = new Dictionary<HazardType, Image>
             {
-                [HazardType.Shootdown]   = Image.FromFile("Images\\shootdown.png"),
-                [HazardType.TrashBox]    = Image.FromFile("Images\\trash-box.png"),
+                [HazardType.Shootdown] = Image.FromFile("Images\\shootdown.png"),
+                [HazardType.TrashBox] = Image.FromFile("Images\\trash-box.png"),
                 [HazardType.BlueWindows] = Image.FromFile("Images\\blue-windows.png"),
                 [HazardType.BurnedPixel] = null
             };
 
-            // Initialize animation to player's start cell
             _startCellX = _targetCellX = _game.Player.X;
             _startCellY = _targetCellY = _game.Player.Y;
             _animOffsetX = _animOffsetY = 0;
@@ -71,6 +82,8 @@ namespace HardwareKiller.Controllers
         {
             State = GameState.Playing;
         }
+        
+        
 
         public void RestartGame()
         {
@@ -85,33 +98,51 @@ namespace HardwareKiller.Controllers
 
         public void OnKeyDown(Keys key)
         {
-            if (State != GameState.Playing || _isMoving) return;
-
+            if (State != GameState.Playing) return;
             switch (key)
             {
                 case Keys.W:
-                case Keys.Up:
-                    StartMove(0, -1);
-                    break;
+                case Keys.Up: _holdUp = true; break;
                 case Keys.S:
-                case Keys.Down:
-                    StartMove(0, 1);
-                    break;
+                case Keys.Down: _holdDown = true; break;
                 case Keys.A:
-                case Keys.Left:
-                    StartMove(-1, 0);
-                    break;
+                case Keys.Left: _holdLeft = true; break;
                 case Keys.D:
-                case Keys.Right:
-                    StartMove(1, 0);
-                    break;
+                case Keys.Right: _holdRight = true; break;
             }
         }
+
+
+        public void OnKeyUp(Keys key)
+        {
+            switch (key)
+            {
+                case Keys.W:
+                case Keys.Up: _holdUp = false; break;
+                case Keys.S:
+                case Keys.Down: _holdDown = false; break;
+                case Keys.A:
+                case Keys.Left: _holdLeft = false; break;
+                case Keys.D:
+                case Keys.Right: _holdRight = false; break;
+            }
+        }
+
 
         public void Update()
         {
             if (State != GameState.Playing) return;
 
+            // 1) Обработка хода игрока
+            if (!_isMoving)
+            {
+                if (_holdUp)    StartMove(0, -1);
+                else if (_holdDown)  StartMove(0, 1);
+                else if (_holdLeft)  StartMove(-1, 0);
+                else if (_holdRight) StartMove(1, 0);
+            }
+
+            // 2) Анимация хода
             if (_isMoving)
             {
                 float dirX = Math.Sign(_targetCellX - _startCellX);
@@ -123,28 +154,54 @@ namespace HardwareKiller.Controllers
                 if (Math.Abs(_animOffsetX) >= _game.CellSize ||
                     Math.Abs(_animOffsetY) >= _game.CellSize)
                 {
-                    // Finish animation
+                    // Завершаем ход
                     _startCellX = _targetCellX;
                     _startCellY = _targetCellY;
                     _game.MovePlayer((int)dirX, (int)dirY);
+
                     _animOffsetX = _animOffsetY = 0;
                     _isMoving = false;
+
+                    // Проверяем столкновения и сборы
                     CheckCollisions();
+
+                    // Двигаем котов по кратчайшему пути
+                    
+                }
+            }
+            MoveCats();
+        }
+        
+        private void MoveCats()
+        {
+            foreach (var cat in _game.Cats)
+            {
+                var path = _graph.ShortestPath(cat.X, cat.Y, _game.Player.X, _game.Player.Y);
+                if (path.Count > 1)
+                {
+                    var next = path[1];
+                    // не ходим через «выгоревшие пиксели»
+                    if (!_game.Obstacles.Any(o => o.X == next.X && o.Y == next.Y))
+                        cat.MoveTo(next.X, next.Y);
+                }
+                if (cat.X == _game.Player.X && cat.Y == _game.Player.Y)
+                {
+                    State = GameState.GameOver;
+                    _gameOverRow = cat.Y;
                 }
             }
         }
 
+
+
         private void CheckCollisions()
         {
-            // Collect items
             var hitItem = _game.Items.FirstOrDefault(i => i.X == _game.Player.X && i.Y == _game.Player.Y);
             if (hitItem != null) _game.Items.Remove(hitItem);
 
-            // Hit hazard → game over
             if (_game.Hazards.Any(h => h.X == _game.Player.X && h.Y == _game.Player.Y))
                 State = GameState.GameOver;
 
-            // All items collected → win
             if (!_game.Items.Any())
                 State = GameState.Won;
         }
@@ -153,19 +210,22 @@ namespace HardwareKiller.Controllers
         {
             int cs = _game.CellSize;
 
-            // Background
+
             var clip = g.VisibleClipBounds;
             g.DrawImage(_bgImg, new Rectangle(0, 0, (int)clip.Width, (int)clip.Height));
+            
+            if (State == GameState.GameOver && _gameOverRow >= 0)
+            {
+                using var brush = new SolidBrush(Color.LightGreen);
+                g.FillRectangle(brush, 0, _gameOverRow * cs, _game.GridWidth * cs, cs);
+            }
 
-            // Burned pixels (full cell)
             foreach (var o in _game.Obstacles)
                 g.FillRectangle(Brushes.Black, o.X * cs, o.Y * cs, cs, cs);
 
-            // Items
             foreach (var it in _game.Items)
                 g.DrawImage(_itemImgs[it.Type], it.X * cs, it.Y * cs, cs, cs);
 
-            // Hazards
             foreach (var hz in _game.Hazards)
             {
                 var img = _hazardImgs[hz.Type];
@@ -175,13 +235,10 @@ namespace HardwareKiller.Controllers
                     g.FillRectangle(Brushes.Red, hz.X * cs, hz.Y * cs, cs, cs);
             }
 
-            // Cats
-            int catSize = (int)(cs * 1.4f);
-            int catOff = (catSize - cs) / 2;
+            int catSize = (int)(cs * 1.4f), catOff = (catSize - cs) / 2;
             foreach (var cat in _game.Cats)
             {
-                int dx = cat.X - cat.PrevX;
-                int dy = cat.Y - cat.PrevY;
+                int dx = cat.X - cat.PrevX, dy = cat.Y - cat.PrevY;
                 Image cimg = _catImg;
                 if (dx < 0)      cimg = _catImgLeft;
                 else if (dy < 0) cimg = _catImgUp;
@@ -190,14 +247,15 @@ namespace HardwareKiller.Controllers
                 g.DrawImage(cimg,
                     cat.X * cs - catOff,
                     cat.Y * cs - catOff,
-                    catSize,
-                    catSize);
+                    catSize, catSize);
             }
 
-            // Cursor (cell-animation)
+
             float px = _startCellX * cs + _animOffsetX;
             float py = _startCellY * cs + _animOffsetY;
-            g.DrawImage(_cursorImg, (int)px, (int)py, cs, cs);
+            g.DrawImage(_cursorImg, px, py, cs, cs);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
         }
 
         private void StartMove(int dx, int dy)

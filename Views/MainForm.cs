@@ -18,6 +18,10 @@ namespace HardwareKiller.Views
         private Panel _menuPanel, _endPanel;
         private Button _btnStart, _btnRetry;
         private Label _lblScore, _lblResult;
+        
+        private Panel _infoPanel;
+        private Label _scoreLabel;
+
 
         public MainForm(GameController controller)
         {
@@ -26,13 +30,32 @@ namespace HardwareKiller.Views
 
             InitializeComponent();
             this.KeyPreview = true;
-            // минималистичный пастельный фон
+            this.KeyDown += (s, e) => _ctrl.OnKeyDown(e.KeyCode);
+            this.KeyUp += (s, e) => _ctrl.OnKeyUp(e.KeyCode);
+
             this.BackColor = Color.FromArgb(240, 240, 250);
             DoubleBuffered = true;
             ClientSize = new Size(640, 480);
             Text = "Hardware Killer";
+            
+            // Информационная панель сверху
+            _infoPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 30,
+                BackColor = Color.LightGray
+            };
+            _scoreLabel = new Label
+            {
+                Text = "Score: 0",
+                AutoSize = true,
+                Location = new Point(10, 5),
+                Font = new Font("Segoe UI", 10, FontStyle.Regular)
+            };
+            _infoPanel.Controls.Add(_scoreLabel);
+            Controls.Add(_infoPanel);
 
-            // --- Меню ---
+
             _menuPanel = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -50,7 +73,6 @@ namespace HardwareKiller.Views
                 Font = new Font("Segoe UI", 12, FontStyle.Regular)
             };
             _btnStart.FlatAppearance.BorderSize = 0;
-            // Закруглённые края
             {
                 var gp = new System.Drawing.Drawing2D.GraphicsPath();
                 int r = 10;
@@ -64,13 +86,12 @@ namespace HardwareKiller.Views
             _btnStart.Click += (s, e) =>
             {
                 _menuPanel.Visible = false;
-                _endPanel.Visible = false;
                 _ctrl.StartGame();
+                _timer.Start(); 
             };
             _menuPanel.Controls.Add(_btnStart);
             Controls.Add(_menuPanel);
 
-            // --- Панель конца игры ---
             _endPanel = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -103,7 +124,6 @@ namespace HardwareKiller.Views
                 Font = new Font("Segoe UI", 12, FontStyle.Regular)
             };
             _btnRetry.FlatAppearance.BorderSize = 0;
-            // Закругление
             {
                 var gp = new System.Drawing.Drawing2D.GraphicsPath();
                 int r = 10;
@@ -118,53 +138,54 @@ namespace HardwareKiller.Views
             {
                 _endPanel.Visible = false;
                 _ctrl.RestartGame();
-                Invalidate();
+                _timer.Start(); 
             };
             _endPanel.Controls.AddRange(new Control[] { _lblResult, _lblScore, _btnRetry });
+            _endPanel.BackgroundImage = Image.FromFile("Images\\lose.png");
+            _endPanel.BackgroundImageLayout = ImageLayout.Stretch;
             Controls.Add(_endPanel);
 
-            // --- Таймер ---
-            _timer = new Timer { Interval = 30 };
-            _timer.Tick += (s, e) =>
+            _timer = new Timer { Interval = 10 };
+            _timer.Tick += (s,e) =>
             {
                 if (_ctrl.State == GameState.Playing)
                 {
                     _ctrl.Update();
+                    _scoreLabel.Text = $"Score: {_ctrl.Score}";
                     Invalidate();
                 }
-                else if (_ctrl.State == GameState.GameOver || _ctrl.State == GameState.Won)
+                else
                 {
                     _timer.Stop();
+                    if (_ctrl.State == GameState.GameOver)
+                        _endPanel.BackgroundImage = Image.FromFile("Images\\lose.png");
+                    else // Won
+                        _endPanel.BackgroundImage = null;
                     _lblResult.Text = _ctrl.State == GameState.Won ? "You Won!" : "Game Over!";
-                    _lblScore.Text = $"Score: {_ctrl.Score}";
+                    _lblScore.Text  = $"Score: {_ctrl.Score}";
                     _endPanel.BringToFront();
                     _endPanel.Visible = true;
                 }
             };
-            _timer.Start();
 
-            // Подписка на нажатия
-            // KeyDown += (s, e) => _ctrl.OnKeyDown(e.KeyCode);
-            this.KeyDown += (s, e) => _ctrl.OnKeyDown(e.KeyCode);
+            _timer.Start();
         }
 
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            e.Graphics.TranslateTransform(0, _infoPanel.Height);
             _ctrl.Draw(e.Graphics);
+            e.Graphics.ResetTransform();
         }
-        
+
         protected override bool IsInputKey(Keys keyData)
         {
-            // считаем стрелки «игровыми» клавишами
-            if (keyData == Keys.Left ||
-                keyData == Keys.Right ||
-                keyData == Keys.Up ||
-                keyData == Keys.Down)
+            if (keyData == Keys.Up || keyData == Keys.Down
+                                   || keyData == Keys.Left || keyData == Keys.Right)
                 return true;
             return base.IsInputKey(keyData);
         }
-
     }
 }
